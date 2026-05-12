@@ -1,0 +1,13 @@
+#!/bin/bash
+
+echo "starting RP"
+node RP/server.js &
+
+sleep 2
+
+echo "starting DN0"
+node DN/dn0s1/server.js &
+
+node DN/dn0s2/server.js &
+
+node DN/dn0s3/server.js &
