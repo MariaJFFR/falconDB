@@ -1,13 +1,47 @@
 #!/bin/bash
 
-echo "starting RP"
-node RP/server.js &
+ACTION=${1:-start}
 
-sleep 2
+case $ACTION in
 
-echo "starting DN0"
-node DN/dn0s1/server.js &
+  start)
+    echo "cleaning logs"
+    rm -f logs/*.log
 
-node DN/dn0s2/server.js &
+    echo "starting RP"
+    forever start RP/server.js
 
-node DN/dn0s3/server.js &
+    sleep 2
+
+    echo "starting DN0"
+    forever start DN/dn0s1/server.js
+    forever start DN/dn0s2/server.js
+    forever start DN/dn0s3/server.js
+    ;;
+
+  stop)
+    echo "stopping DN0"
+    forever stop DN/dn0s3/server.js
+    forever stop DN/dn0s2/server.js
+    forever stop DN/dn0s1/server.js
+
+    echo "stopping RP"
+    forever stop RP/server.js
+    ;;
+
+  restart)
+    $0 stop
+    sleep 1
+    $0 start
+    ;;
+
+  stat)
+    forever list
+    ;;
+
+  *)
+    echo "Usage: $0 {start|stop|restart|stat}"
+    exit 1
+    ;;
+
+esac

@@ -1,24 +1,36 @@
 const express = require('express');
 const axios = require('axios');
+const md5 = require('md5');
+const { DateTime } = require('luxon');
 
 const shard = require('../common/shard');
 const response = require('../common/response');
 const createLogger = require('../common/logger');
 
+const config = require('../etc/configure.json');
+
 const logger = createLogger('rp.log');
 
-const leaders = {
-  0: 'http://127.0.0.1:9001'
-};
+const PORT = config.reverse_proxy.port;
+
+const leaders = {};
+config.dns.forEach(dn => {
+  leaders[dn.id] = `http://${dn.servers[0].host}:${dn.servers[0].port}`;
+});
+
+const startTime = DateTime.now();
+
+function getLivingTime() {
+  const diff = DateTime.now().diff(startTime, ['days', 'hours', 'minutes', 'seconds']).toObject();
+  const d = Math.floor(diff.days || 0);
+  const h = String(Math.floor(diff.hours || 0)).padStart(2, '0');
+  const m = String(Math.floor(diff.minutes || 0)).padStart(2, '0');
+  const s = String(Math.floor(diff.seconds || 0)).padStart(2, '0');
+  return `${d}d-${h}:${m}:${s}`;
+}
 
 const app = express();
 app.use(express.json());
-
-const dns = [
-  'http://127.0.0.1:9001',
-  'http://127.0.0.1:9002',
-  'http://127.0.0.1:9003'
-];
 
 let stats = {
   create: 0,
@@ -89,9 +101,49 @@ app.get('/status', async (req, res) => {
 app.get('/stat', (req, res) => {
 
   res.json({
-    data: stats,
+    data: {
+      start_at: startTime.toISO(),
+      living_time: getLivingTime(),
+      ...stats
+    },
     error: 0
   });
+});
+
+
+
+/*
+  ADMIN - LOGLEVEL
+*/
+app.get('/admin/loglevel', (req, res) => {
+
+  const { level } = req.query;
+
+  logger.level = level;
+
+  logger.info(`log level set to ${level}`);
+
+  res.json({
+    data: { level },
+    error: 0
+  });
+});
+
+
+
+/*
+  STOP
+*/
+app.get('/stop', (req, res) => {
+
+  logger.info('stop requested');
+
+  res.json({
+    data: { ok: true },
+    error: 0
+  });
+
+  process.exit(0);
 });
 
 
@@ -103,7 +155,9 @@ app.post('/db/c', async (req, res) => {
 
   try {
 
-    const dn = shard.getDN(req.body.key, Object.keys(leaders).length);
+    const { key, value } = req.body;
+
+    const dn = shard.getDN(key, Object.keys(leaders).length);
     const leaderUrl = leaders[dn];
 
     logger.info(`DN=${dn} leader=${leaderUrl}`);
@@ -125,14 +179,21 @@ app.post('/db/c', async (req, res) => {
     }
 
     // FASE 2: COMMIT
-    const commit = await axios.post(
+    await axios.post(
       `${leaderUrl}/commit`,
       req.body
     );
 
     stats.create++;
 
-    res.json(commit.data);
+    res.json({
+      data: {
+        DB_key: md5(key),
+        DN_id: dn,
+        tuple: { key, value }
+      },
+      error: 0
+    });
 
   } catch (err) {
 
@@ -173,7 +234,14 @@ app.get('/db/r', async (req, res) => {
 
     stats.read++;
 
-    res.json(result.data);
+    res.json({
+      data: {
+        DB_key: md5(key),
+        DN_id: dn,
+        tuple: result.data.data
+      },
+      error: 0
+    });
 
   } catch (err) {
 
@@ -194,12 +262,14 @@ app.post('/db/u', async (req, res) => {
 
   try {
 
-    const dn = shard.getDN(req.body.key, Object.keys(leaders).length);
+    const { key } = req.body;
+
+    const dn = shard.getDN(key, Object.keys(leaders).length);
     const leaderUrl = leaders[dn];
 
     logger.info(`DN=${dn} leader=${leaderUrl}`);
 
-    // PREPARE
+    // FASE 1: PREPARE
     const prepare = await axios.post(
       `${leaderUrl}/prepare`,
       req.body
@@ -215,15 +285,22 @@ app.post('/db/u', async (req, res) => {
       });
     }
 
-    // COMMIT
+    // FASE 2: COMMIT UPDATE
     const commit = await axios.post(
-      `${leaderUrl}/commit`,
+      `${leaderUrl}/commit-update`,
       req.body
     );
 
     stats.update++;
 
-    res.json(commit.data);
+    res.json({
+      data: {
+        DB_key: md5(key),
+        DN_id: dn,
+        tuple: commit.data.data
+      },
+      error: 0
+    });
 
   } catch (err) {
 
@@ -248,18 +325,27 @@ app.get('/db/d', async (req, res) => {
 
   try {
 
-    const dn = shard.getDN(req.query.key, Object.keys(leaders).length);
+    const key = req.query.key;
+
+    const dn = shard.getDN(key, Object.keys(leaders).length);
     const leaderUrl = leaders[dn];
 
     logger.info(`DN=${dn} leader=${leaderUrl}`);
 
     await axios.post(`${leaderUrl}/prepare`, req.query);
 
-    const result = await axios.post(`${leaderUrl}/delete`, req.query);
+    await axios.post(`${leaderUrl}/delete`, req.query);
 
     stats.delete++;
 
-    res.json(result.data);
+    res.json({
+      data: {
+        DB_key: md5(key),
+        DN_id: dn,
+        tuple: { key }
+      },
+      error: 0
+    });
 
   } catch (err) {
 
@@ -277,7 +363,7 @@ app.get('/db/d', async (req, res) => {
 
 
 
-app.listen(8000, () => {
-  console.log('RP running on 8000');
+app.listen(PORT, () => {
+  console.log(`RP running on ${PORT}`);
   logger.info('RP started');
 });

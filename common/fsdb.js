@@ -39,6 +39,28 @@ function read(key) {
   );
 }
 
+function update(key, members) {
+
+  const existing = read(key);
+
+  if (!existing) return null;
+
+  const value = existing.value;
+
+  for (const [k, v] of Object.entries(members)) {
+
+    if (v === '--delete--' || v === '\\-\\-delete\\-\\-') {
+      delete value[k];
+    } else {
+      value[k] = v;
+    }
+  }
+
+  create(key, value);
+
+  return { key, value };
+}
+
 function remove(key) {
 
   const file = getFile(key);
@@ -48,8 +70,19 @@ function remove(key) {
   }
 }
 
+function list() {
+
+  if (!fs.existsSync(DBPATH)) return [];
+
+  return fs.readdirSync(DBPATH)
+    .filter(f => f.endsWith('.json'))
+    .map(f => f.replace('.json', ''));
+}
+
 module.exports = {
   create,
   read,
-  remove
+  update,
+  remove,
+  list
 };
