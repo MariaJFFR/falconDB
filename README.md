@@ -15,7 +15,7 @@ A distributed key-value database built in Node.js, implementing the **Raft conse
 7. [Reverse Proxy (RP)](#reverse-proxy-rp)
 8. [Raft Consensus — Deep Dive](#raft-consensus--deep-dive)
 9. [Two-Phase Commit (2PC) — Deep Dive](#two-phase-commit-2pc--deep-dive)
-10. [Sharding & Consistent Hashing](#sharding--consistent-hashing)
+10. [Sharding](#sharding)
 11. [Storage Layer](#storage-layer)
 12. [API Reference](#api-reference)
 13. [Data Flow Walkthroughs](#data-flow-walkthroughs)
@@ -176,11 +176,10 @@ The `value` field is any JSON-serializable type: object, string, number, array, 
 | Function | Signature | Behavior |
 |---|---|---|
 | `getFile(key)` | `key → string` | Returns full path to the JSON file for this key |
-| `create(key, value)` | `(key, value) → void` | Writes `{key, value}` to disk (overwrites if exists) |
+| `create(key, value)` | `(key, value) → void` | Writes `{key, value}` to disk; throws if key already exists |
 | `read(key)` | `key → {key, value} \| null` | Reads and parses the file; returns `null` if missing |
+| `update(key, members)` | `(key, object) → {key, value} \| null` | Merges `members` into the existing value field by field; a field set to `"--delete--"` is removed; a field set to `"\-\-delete\-\-"` stores the literal string `"--delete--"`; returns `null` if key doesn't exist |
 | `remove(key)` | `key → void` | Deletes the file for the key |
-
-There is no `update` function — `create` is used for both create and update operations (it overwrites).
 
 ---
 
@@ -426,9 +425,9 @@ RP                    Leader (DN1)          Follower (DN2)    Follower (DN3)
 
 ---
 
-## Sharding & Consistent Hashing
+## Sharding
 
-The sharding module (`common/shard.js`) uses MD5-based consistent hashing to route keys to DN groups.
+The sharding module (`common/shard.js`) uses MD5-based hashing to route keys to DN groups.
 
 ```
 shard_id = parseInt(MD5(key).substring(0, 8), 16) % totalDNGroups
@@ -466,7 +465,7 @@ DBdata/
 - **No schema enforcement** — any JSON value is accepted.
 - **No indexing** — lookup is O(1) (direct filename from MD5 hash), but range queries or full scans are not supported.
 - **No WAL (Write-Ahead Log)** — a crash mid-write could corrupt the JSON file.
-- **Overwrites silently** — `create` and `update` both call the same underlying `fsdb.create`, which overwrites the file completely.
+- **`create` throws if key exists** — use `update` to modify an existing key. `update` does field-level merging, not a full overwrite.
 
 ---
 

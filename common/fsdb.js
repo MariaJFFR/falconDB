@@ -37,8 +37,10 @@ function update(key, members) {
   }
 
   for (const [k, v] of Object.entries(members)) {
-    if (v === '--delete--' || v === '\\-\\-delete\\-\\-') {
+    if (v === '--delete--') {
       delete value[k];
+    } else if (v === '\\-\\-delete\\-\\-') {
+      value[k] = '--delete--';
     } else {
       value[k] = v;
     }
