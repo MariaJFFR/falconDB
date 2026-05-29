@@ -5,9 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY common ./common
-COPY DN ./DN
-COPY RP ./RP
+COPY src ./src
 COPY etc ./etc
 
 RUN mkdir -p DBdata

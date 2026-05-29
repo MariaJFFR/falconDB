@@ -1,0 +1,17 @@
+#!/bin/bash
+
+cd "$(dirname "$0")/.."
+
+mkdir -p logs
+mkdir -p DBdata/dn0s1 DBdata/dn0s2 DBdata/dn0s3
+mkdir -p DBdata/dn1s1 DBdata/dn1s2 DBdata/dn1s3
+mkdir -p DBdata/dn2s1 DBdata/dn2s2 DBdata/dn2s3
+
+echo "Building image..."
+podman build -t falcondb:latest .
+
+echo "Starting cluster..."
+podman-compose up -d
+
+echo ""
+echo "falconDB running -> http://localhost:8000"

@@ -3,11 +3,12 @@ const axios = require('axios');
 const md5 = require('md5');
 const { DateTime } = require('luxon');
 
-const shard = require('../common/shard');
-const response = require('../common/response');
-const createLogger = require('../common/logger');
+const shard = require('../lib/shard');
+const response = require('../lib/response');
+const createLogger = require('../lib/logger');
+const { normalizeKey } = require('../lib/keyUtils');
 
-const config = require('../etc/configure.json');
+const config = require('../../etc/configure.json');
 
 const logger = createLogger('rp.log');
 
@@ -62,6 +63,12 @@ function requireFromRPorTest(req, res, next) {
 
 const app = express();
 app.use(express.json());
+
+app.use((req, res, next) => {
+  if (req.body && req.body.key !== undefined) req.body.key = normalizeKey(req.body.key);
+  if (req.query && req.query.key !== undefined) req.query.key = normalizeKey(decodeURIComponent(req.query.key));
+  next();
+});
 
 let stats = {
   create: 0,

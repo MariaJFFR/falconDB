@@ -1,0 +1,79 @@
+services:
+  rp:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/reverseProxy/server.js
+    volumes:
+      - ./logs:/app/logs
+
+  dn0s1:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/dataNode/dn0s1/server.js
+    volumes:
+      - ./DBdata/dn0s1:/app/DBdata
+      - ./logs:/app/logs
+
+  dn0s2:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/dataNode/dn0s2/server.js
+    volumes:
+      - ./DBdata/dn0s2:/app/DBdata
+      - ./logs:/app/logs
+
+  dn0s3:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/dataNode/dn0s3/server.js
+    volumes:
+      - ./DBdata/dn0s3:/app/DBdata
+      - ./logs:/app/logs
+
+  dn1s1:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/dataNode/dn1s1/server.js
+    volumes:
+      - ./DBdata/dn1s1:/app/DBdata
+      - ./logs:/app/logs
+
+  dn1s2:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/dataNode/dn1s2/server.js
+    volumes:
+      - ./DBdata/dn1s2:/app/DBdata
+      - ./logs:/app/logs
+
+  dn1s3:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/dataNode/dn1s3/server.js
+    volumes:
+      - ./DBdata/dn1s3:/app/DBdata
+      - ./logs:/app/logs
+
+  dn2s1:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/dataNode/dn2s1/server.js
+    volumes:
+      - ./DBdata/dn2s1:/app/DBdata
+      - ./logs:/app/logs
+
+  dn2s2:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/dataNode/dn2s2/server.js
+    volumes:
+      - ./DBdata/dn2s2:/app/DBdata
+      - ./logs:/app/logs
+
+  dn2s3:
+    image: falcondb:latest
+    network_mode: host
+    command: node src/dataNode/dn2s3/server.js
+    volumes:
+      - ./DBdata/dn2s3:/app/DBdata
+      - ./logs:/app/logs

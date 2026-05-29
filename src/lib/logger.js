@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const winston = require('winston');
 
-const LOGS_DIR = path.join(__dirname, '..', 'logs');
+const LOGS_DIR = path.join(__dirname, '..', '..', 'logs');
 
 if (!fs.existsSync(LOGS_DIR)) {
   fs.mkdirSync(LOGS_DIR);

@@ -1,15 +1,16 @@
 const express = require('express');
 const axios = require('axios');
 
-const fsdb = require('../../common/fsdb');
-const response = require('../../common/response');
-const createLogger = require('../../common/logger');
+const fsdb = require('../../lib/fsdb');
+const response = require('../../lib/response');
+const createLogger = require('../../lib/logger');
 
 const { DateTime } = require('luxon');
 
-const config = require('../../etc/configure.json');
+const config = require('../../../etc/configure.json');
+const { normalizeKey } = require('../../lib/keyUtils');
 
-const MY_ID = 'dn0s2';
+const MY_ID = 'dn2s2';
 
 const myDN = config.dns.find(
   dn => dn.servers.some(s => s.id === MY_ID)
@@ -94,6 +95,12 @@ let stats = {
 
 const app = express();
 app.use(express.json());
+
+app.use((req, res, next) => {
+  if (req.body && req.body.key !== undefined) req.body.key = normalizeKey(req.body.key);
+  if (req.query && req.query.key !== undefined) req.query.key = normalizeKey(decodeURIComponent(req.query.key));
+  next();
+});
 
 
 
