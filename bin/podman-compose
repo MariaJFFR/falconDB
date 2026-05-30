@@ -1,17 +1,25 @@
 #!/bin/bash
+set -e
 
 cd "$(dirname "$0")/.."
+
+if [ $# -eq 1 ]; then
+  podman build -t falcondb:latest -f Containerfile .
+fi
 
 mkdir -p logs
 mkdir -p DBdata/dn0s1 DBdata/dn0s2 DBdata/dn0s3
 mkdir -p DBdata/dn1s1 DBdata/dn1s2 DBdata/dn1s3
 mkdir -p DBdata/dn2s1 DBdata/dn2s2 DBdata/dn2s3
 
-echo "Building image..."
-podman build -t falcondb:latest .
+podman rm -f --ignore \
+  rp \
+  dn0s1 dn0s2 dn0s3 \
+  dn1s1 dn1s2 dn1s3 \
+  dn2s1 dn2s2 dn2s3 \
+  2>/dev/null || echo "NEVER mind ... keep going."
 
-echo "Starting cluster..."
-podman-compose up -d
+podman compose up -d
 
 echo ""
 echo "falconDB running -> http://localhost:8000"

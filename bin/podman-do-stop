@@ -2,7 +2,12 @@
 
 cd "$(dirname "$0")/.."
 
-echo "Stopping cluster..."
-podman-compose down
+yml=docker-compose.yml
 
-echo "Done."
+echo $yml
+
+for ct in $(grep container_name: $yml | awk '{print $NF}'); do
+  podman stop -t 0 $ct
+done
+
+exit 0

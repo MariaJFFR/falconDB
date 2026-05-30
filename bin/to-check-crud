@@ -1,0 +1,55 @@
+#!/bin/bash
+
+cd "$(dirname "$0")/.."
+
+DNS=(dn0s1 dn0s2 dn0s3 dn1s1 dn1s2 dn1s3 dn2s1 dn2s2 dn2s3)
+SHARDS=(dn0 dn1 dn2)
+DBPATH=/app/DBdata
+
+get_files() {
+  podman exec $1 sh -c "find $DBPATH -name '*.json' -exec md5sum {} \; 2>/dev/null | sort" | tr '\n' ' '
+}
+
+get_content() {
+  podman exec $1 sh -c "find $DBPATH -name '*.json' -exec cat {} \;" 2>/dev/null
+}
+
+echo "=== snapshot before ==="
+declare -A BEFORE
+for dn in "${DNS[@]}"; do
+  BEFORE[$dn]=$(get_files $dn)
+done
+
+echo ""
+echo "=== executing: $@ ==="
+"$@"
+echo ""
+
+echo "=== snapshot after ==="
+for dn in "${DNS[@]}"; do
+  AFTER=$(get_files $dn)
+  if [ "${BEFORE[$dn]}" != "$AFTER" ]; then
+    echo "  $dn: CHANGED"
+  else
+    echo "  $dn: unchanged"
+  fi
+done
+
+echo ""
+echo "=== consistency check per shard ==="
+for shard in "${SHARDS[@]}"; do
+  echo ""
+  echo "-- Shard $shard --"
+  C1=$(get_content ${shard}s1)
+  C2=$(get_content ${shard}s2)
+  C3=$(get_content ${shard}s3)
+  if [ "$C1" = "$C2" ] && [ "$C2" = "$C3" ]; then
+    echo "  OK - all replicas consistent"
+    [ -n "$C1" ] && echo "  content: $C1"
+  else
+    echo "  INCONSISTENT!"
+    echo "  ${shard}s1: $C1"
+    echo "  ${shard}s2: $C2"
+    echo "  ${shard}s3: $C3"
+  fi
+done

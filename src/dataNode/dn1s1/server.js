@@ -9,6 +9,10 @@ const { DateTime } = require('luxon');
 
 const config = require('../../../etc/configure.json');
 const { normalizeKey } = require('../../lib/keyUtils');
+const { normalizeIP, isPrivateIP } = require('../../lib/netUtils');
+const { validateConfig } = require('../../lib/configValidator');
+
+validateConfig();
 
 const MY_ID = 'dn1s1';
 
@@ -25,9 +29,6 @@ const peers = myDN.servers
 const rpUrl = `http://${config.reverse_proxy.host}:${config.reverse_proxy.port}`;
 
 const PORT = myServer.port;
-const RP_IP = config.reverse_proxy.host;
-const DN_IPS = myDN.servers.map(s => s.host);
-const TEST_CLIENT_IP = config.test_client_ip || null;
 
 const logger = createLogger(`${MY_ID}.log`);
 const raftLogger = createLogger(`raft-${MY_ID}.log`);
@@ -45,26 +46,18 @@ function getLivingTime() {
 
 // ── IP helpers ────────────────────────────────────────────────────────────────
 
-function normalizeIP(ip) {
-  if (!ip) return '';
-  if (ip === '::1') return '127.0.0.1';
-  if (ip.startsWith('::ffff:')) return ip.slice(7);
-  return ip;
-}
-
 function requireFromRP(req, res, next) {
-  if (normalizeIP(req.ip) === RP_IP) return next();
+  if (isPrivateIP(normalizeIP(req.ip))) return next();
   res.status(403).json(response.failure('eDN403', 'forbidden: RP only'));
 }
 
 function requireFromDN(req, res, next) {
-  if (DN_IPS.includes(normalizeIP(req.ip))) return next();
+  if (isPrivateIP(normalizeIP(req.ip))) return next();
   res.status(403).json(response.failure('eDN403', 'forbidden: DN peers only'));
 }
 
 function requireFromRPorTest(req, res, next) {
-  const ip = normalizeIP(req.ip);
-  if (ip === RP_IP || (TEST_CLIENT_IP && ip === TEST_CLIENT_IP)) return next();
+  if (isPrivateIP(normalizeIP(req.ip))) return next();
   res.status(403).json(response.failure('eDN403', 'forbidden: RP or test client only'));
 }
 
@@ -79,7 +72,6 @@ function requireFromSelf(req, res, next) {
 let state = 'follower';
 let currentTerm = 0;
 let votedFor = null;
-let leader = null;
 let lastHeartbeat = Date.now();
 
 const ELECTION_TIMEOUT = 5000 + Math.floor(Math.random() * 5000);
@@ -109,17 +101,14 @@ app.use((req, res, next) => {
 */
 app.get('/status', (req, res) => {
 
-  res.json({
-    data: {
-      id: MY_ID,
-      port: PORT,
-      state,
-      term: currentTerm,
-      start_at: startTime.toISO(),
-      living_time: getLivingTime()
-    },
-    error: 0
-  });
+  res.json(response.success({
+    id: MY_ID,
+    port: PORT,
+    state,
+    term: currentTerm,
+    start_at: startTime.toISO(),
+    living_time: getLivingTime()
+  }));
 });
 
 
@@ -129,14 +118,11 @@ app.get('/status', (req, res) => {
 */
 app.get('/stat', (req, res) => {
 
-  res.json({
-    data: {
-      start_at: startTime.toISO(),
-      living_time: getLivingTime(),
-      ...stats
-    },
-    error: 0
-  });
+  res.json(response.success({
+    start_at: startTime.toISO(),
+    living_time: getLivingTime(),
+    ...stats
+  }));
 });
 
 
@@ -150,7 +136,7 @@ app.get('/admin/loglevel', requireFromSelf, (req, res) => {
   logger.level = level;
   raftLogger.level = level;
   logger.info(`log level set to ${level}`);
-  res.json({ data: { level }, error: 0 });
+  res.json(response.success({ level }));
 });
 
 
@@ -161,7 +147,7 @@ app.get('/admin/loglevel', requireFromSelf, (req, res) => {
 app.get('/stop', requireFromRPorTest, (req, res) => {
 
   logger.info('stop requested');
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
   process.exit(0);
 });
 
@@ -190,7 +176,7 @@ async function startElection() {
         params: { term: currentTerm, candidate: MY_ID }
       });
 
-      if (r.data.vote) {
+      if (r.data.data.vote) {
         votes++;
         raftLogger.trace(`[TERM ${currentTerm}] vote granted by ${peer} – total votes=${votes}`);
       } else {
@@ -208,7 +194,6 @@ async function startElection() {
   if (votes >= majority) {
 
     state = 'leader';
-    leader = MY_ID;
     raftLogger.trace(`[TERM ${currentTerm}] won election – transitioning to LEADER`);
 
     try {
@@ -265,13 +250,12 @@ app.post('/heartbeat', requireFromDN, (req, res) => {
 
   if (term >= currentTerm) {
     currentTerm = term;
-    leader = leaderId;
     lastHeartbeat = Date.now();
     state = 'follower';
     votedFor = null;
   }
 
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
 });
 
 
@@ -286,29 +270,28 @@ app.get('/election', requireFromDN, (req, res) => {
 
   raftLogger.trace(`[TERM ${term}] RequestVote received from ${candidate} (my term=${currentTerm}, votedFor=${votedFor})`);
 
-  if (term > currentTerm && (votedFor === null || votedFor === candidate)) {
-
+  if (term > currentTerm) {
     currentTerm = term;
-    votedFor = candidate;
+    votedFor = null;
     state = 'follower';
+  }
+
+  if (term >= currentTerm && (votedFor === null || votedFor === candidate)) {
+    votedFor = candidate;
     lastHeartbeat = Date.now();
 
     raftLogger.trace(`[TERM ${term}] vote GRANTED to ${candidate}`);
-    return res.json({ vote: true });
+    return res.json(response.success({ vote: true }));
   }
 
   raftLogger.trace(`[TERM ${term}] vote DENIED to ${candidate} (currentTerm=${currentTerm}, votedFor=${votedFor})`);
-  res.json({ vote: false });
+  res.json(response.success({ vote: false }));
 });
 
 
 
 // ── 2PC ───────────────────────────────────────────────────────────────────────
 
-/*
-  Helper: check local preconditions for an operation (used in both /prepare and /vote).
-  Returns null if ok, or a reason string if not.
-*/
 function checkPreconditions(operation, key) {
   const existing = fsdb.read(key);
 
@@ -329,11 +312,7 @@ function checkPreconditions(operation, key) {
 
 
 /*
-  PREPARE  (RPo – only RP calls this on the master)
-
-  Phase 1 of 2PC: master checks local preconditions, then asks all followers
-  to vote. If any follower is not ready, master sends /abort to those that
-  already voted yes and returns {ok: false} to the RP.
+  PREPARE  (RPo)
 */
 app.post('/prepare', requireFromRP, async (req, res) => {
 
@@ -353,7 +332,6 @@ app.post('/prepare', requireFromRP, async (req, res) => {
     try {
       const r = await axios.post(`${peer}/vote`, { operation, key });
       if (!r.data.data.ok) {
-        // one follower said no – abort the ones that said yes
         for (const okPeer of voted) {
           try { await axios.post(`${okPeer}/abort`, { operation, key }); } catch (_) {}
         }
@@ -377,7 +355,7 @@ app.post('/prepare', requireFromRP, async (req, res) => {
 
 
 /*
-  VOTE  (DNp – followers answer whether they can execute the operation)
+  VOTE  (DNp)
 */
 app.post('/vote', requireFromDN, (req, res) => {
 
@@ -396,14 +374,12 @@ app.post('/vote', requireFromDN, (req, res) => {
 
 
 /*
-  ABORT  (DNp – sent by master when prepare collapses mid-way)
-  Nothing was locked/written in prepare, so this is a no-op, but the
-  route must exist for protocol completeness.
+  ABORT  (DNp)
 */
 app.post('/abort', requireFromDN, (req, res) => {
 
   logger.info(`2PC ABORT received op=${req.body.operation} key=${req.body.key}`);
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
 });
 
 
@@ -432,7 +408,7 @@ app.post('/commit', requireFromRP, async (req, res) => {
     }
   }
 
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
 });
 
 
@@ -444,19 +420,12 @@ app.post('/replicate', requireFromDN, (req, res) => {
 
   const { key, value } = req.body;
 
-  // Use _write-equivalent: always overwrite on replication (leader already committed)
   const existing = fsdb.read(key);
-  if (existing) {
-    fsdb.remove(key);
-  }
-  try {
-    fsdb.create(key, value);
-  } catch (_) {
-    // key was removed just above, this should never throw
-  }
+  if (existing) fsdb.remove(key);
+  fsdb.create(key, value);
 
   logger.info(`replicated create key=${key}`);
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
 });
 
 
@@ -488,7 +457,7 @@ app.post('/commit-update', requireFromRP, async (req, res) => {
     }
   }
 
-  res.json({ data: result, error: 0 });
+  res.json(response.success(result));
 });
 
 
@@ -507,7 +476,7 @@ app.post('/replicate-update', requireFromDN, (req, res) => {
   }
 
   logger.info(`replicated update key=${key}`);
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
 });
 
 
@@ -531,7 +500,7 @@ app.post('/delete', requireFromRP, async (req, res) => {
     }
   }
 
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
 });
 
 
@@ -544,7 +513,7 @@ app.post('/replicate-delete', requireFromDN, (req, res) => {
   const { key } = req.body;
   fsdb.remove(key);
   logger.info(`replicated delete key=${key}`);
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
 });
 
 
@@ -555,7 +524,7 @@ app.post('/replicate-delete', requireFromDN, (req, res) => {
 app.get('/maintenance', requireFromDN, (req, res) => {
 
   const keys = fsdb.list();
-  res.json({ data: { keys }, error: 0 });
+  res.json(response.success({ keys }));
 });
 
 
@@ -564,7 +533,6 @@ app.get('/maintenance', requireFromDN, (req, res) => {
 
 /*
   CREATE  (RPt)
-  If this server is the master, runs full 2PC; otherwise rejects.
 */
 app.post('/db/c', requireFromRPorTest, async (req, res) => {
 
@@ -639,7 +607,6 @@ app.get('/db/r', requireFromRPorTest, (req, res) => {
 
 /*
   UPDATE  (RPt)
-  If master, runs full 2PC; otherwise rejects.
 */
 app.post('/db/u', requireFromRPorTest, async (req, res) => {
 
@@ -690,7 +657,6 @@ app.post('/db/u', requireFromRPorTest, async (req, res) => {
 
 /*
   DELETE  (RPt)
-  If master, runs full 2PC; otherwise rejects.
 */
 app.get('/db/d', requireFromRPorTest, async (req, res) => {
 

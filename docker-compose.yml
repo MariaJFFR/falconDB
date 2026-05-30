@@ -1,79 +1,109 @@
 services:
   rp:
+    container_name: rp
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
     command: node src/reverseProxy/server.js
     volumes:
       - ./logs:/app/logs
 
   dn0s1:
+    container_name: dn0s1
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
     command: node src/dataNode/dn0s1/server.js
+    depends_on:
+      - rp
     volumes:
       - ./DBdata/dn0s1:/app/DBdata
       - ./logs:/app/logs
 
   dn0s2:
+    container_name: dn0s2
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
     command: node src/dataNode/dn0s2/server.js
+    depends_on:
+      - rp
     volumes:
       - ./DBdata/dn0s2:/app/DBdata
       - ./logs:/app/logs
 
   dn0s3:
+    container_name: dn0s3
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
     command: node src/dataNode/dn0s3/server.js
+    depends_on:
+      - rp
     volumes:
       - ./DBdata/dn0s3:/app/DBdata
       - ./logs:/app/logs
 
   dn1s1:
+    container_name: dn1s1
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
     command: node src/dataNode/dn1s1/server.js
+    depends_on:
+      - rp
     volumes:
       - ./DBdata/dn1s1:/app/DBdata
       - ./logs:/app/logs
 
   dn1s2:
+    container_name: dn1s2
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
     command: node src/dataNode/dn1s2/server.js
+    depends_on:
+      - rp
     volumes:
       - ./DBdata/dn1s2:/app/DBdata
       - ./logs:/app/logs
 
   dn1s3:
+    container_name: dn1s3
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
     command: node src/dataNode/dn1s3/server.js
+    depends_on:
+      - rp
     volumes:
       - ./DBdata/dn1s3:/app/DBdata
       - ./logs:/app/logs
 
   dn2s1:
+    container_name: dn2s1
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
     command: node src/dataNode/dn2s1/server.js
+    depends_on:
+      - rp
     volumes:
       - ./DBdata/dn2s1:/app/DBdata
       - ./logs:/app/logs
 
   dn2s2:
+    container_name: dn2s2
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
     command: node src/dataNode/dn2s2/server.js
+    depends_on:
+      - rp
     volumes:
       - ./DBdata/dn2s2:/app/DBdata
       - ./logs:/app/logs
 
   dn2s3:
+    container_name: dn2s3
     image: falcondb:latest
-    network_mode: host
+    restart: unless-stopped
     command: node src/dataNode/dn2s3/server.js
+    depends_on:
+      - rp
     volumes:
       - ./DBdata/dn2s3:/app/DBdata
       - ./logs:/app/logs

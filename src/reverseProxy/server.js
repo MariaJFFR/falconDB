@@ -7,15 +7,16 @@ const shard = require('../lib/shard');
 const response = require('../lib/response');
 const createLogger = require('../lib/logger');
 const { normalizeKey } = require('../lib/keyUtils');
+const { normalizeIP, isPrivateIP } = require('../lib/netUtils');
+const { validateConfig } = require('../lib/configValidator');
+
+validateConfig();
 
 const config = require('../../etc/configure.json');
 
 const logger = createLogger('rp.log');
 
 const PORT = config.reverse_proxy.port;
-const SELF_IP = config.reverse_proxy.host;
-const TEST_CLIENT_IP = config.test_client_ip || null;
-const ALL_DN_IPS = config.dns.flatMap(dn => dn.servers.map(s => s.host));
 
 const leaders = {};
 config.dns.forEach(dn => {
@@ -33,31 +34,21 @@ function getLivingTime() {
   return `${d}d-${h}:${m}:${s}`;
 }
 
-function normalizeIP(ip) {
-  if (!ip) return '';
-  if (ip === '::1') return '127.0.0.1';
-  if (ip.startsWith('::ffff:')) return ip.slice(7);
-  return ip;
-}
-
 function requireFromDN(req, res, next) {
-  const ip = normalizeIP(req.ip);
-  if (ALL_DN_IPS.includes(ip)) return next();
-  logger.warn(`forbidden /set_master from ${ip}`);
+  if (isPrivateIP(normalizeIP(req.ip))) return next();
+  logger.warn(`forbidden /set_master from ${normalizeIP(req.ip)}`);
   res.status(403).json(response.failure('eRP403', 'forbidden: DN peers only'));
 }
 
 function requireFromSelf(req, res, next) {
-  const ip = normalizeIP(req.ip);
-  if (ip === '127.0.0.1' || ip === SELF_IP) return next();
-  logger.warn(`forbidden /admin from ${ip}`);
+  if (normalizeIP(req.ip) === '127.0.0.1') return next();
+  logger.warn(`forbidden /admin from ${normalizeIP(req.ip)}`);
   res.status(403).json(response.failure('eRP403', 'forbidden: localhost only'));
 }
 
 function requireFromRPorTest(req, res, next) {
-  const ip = normalizeIP(req.ip);
-  if (ip === SELF_IP || (TEST_CLIENT_IP && ip === TEST_CLIENT_IP)) return next();
-  logger.warn(`forbidden /stop from ${ip}`);
+  if (isPrivateIP(normalizeIP(req.ip))) return next();
+  logger.warn(`forbidden /stop from ${normalizeIP(req.ip)}`);
   res.status(403).json(response.failure('eRP403', 'forbidden: RP or test client only'));
 }
 
@@ -94,7 +85,7 @@ function handleSetMaster(req, res) {
   leaders[dnId] = leaderUrl;
   logger.info(`DN ${dnId} leader -> ${leaderUrl}`);
 
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
 }
 
 app.get('/set_master', requireFromDN, handleSetMaster);
@@ -118,7 +109,7 @@ app.get('/status', async (req, res) => {
     }
   }
 
-  res.json({ data: status, error: 0 });
+  res.json(response.success(status));
 });
 
 
@@ -128,14 +119,11 @@ app.get('/status', async (req, res) => {
 */
 app.get('/stat', (req, res) => {
 
-  res.json({
-    data: {
-      start_at: startTime.toISO(),
-      living_time: getLivingTime(),
-      ...stats
-    },
-    error: 0
-  });
+  res.json(response.success({
+    start_at: startTime.toISO(),
+    living_time: getLivingTime(),
+    ...stats
+  }));
 });
 
 
@@ -149,7 +137,7 @@ app.get('/admin/loglevel', requireFromSelf, (req, res) => {
   logger.level = level;
   logger.info(`log level set to ${level}`);
 
-  res.json({ data: { level }, error: 0 });
+  res.json(response.success({ level }));
 });
 
 
@@ -160,7 +148,7 @@ app.get('/admin/loglevel', requireFromSelf, (req, res) => {
 app.get('/stop', requireFromRPorTest, (req, res) => {
 
   logger.info('stop requested');
-  res.json({ data: { ok: true }, error: 0 });
+  res.json(response.success({ ok: true }));
   process.exit(0);
 });
 
@@ -193,10 +181,7 @@ app.post('/db/c', async (req, res) => {
 
     stats.create++;
 
-    res.json({
-      data: { DB_key: md5(key), DN_id: dn, tuple: { key, value } },
-      error: 0
-    });
+    res.json(response.success({ DB_key: md5(key), DN_id: dn, tuple: { key, value } }));
 
   } catch (err) {
     logger.error(err.message);
@@ -220,12 +205,13 @@ app.get('/db/r', async (req, res) => {
 
     const result = await axios.get(`${leaderUrl}/db/r`, { params: { key } });
 
+    if (result.data.error !== 0) {
+      return res.json(result.data);
+    }
+
     stats.read++;
 
-    res.json({
-      data: { DB_key: md5(key), DN_id: dn, tuple: result.data.data },
-      error: 0
-    });
+    res.json(response.success({ DB_key: md5(key), DN_id: dn, tuple: result.data.data }));
 
   } catch (err) {
     logger.error(err.message);
@@ -254,7 +240,7 @@ app.post('/db/u', async (req, res) => {
     });
 
     if (!prepare.data.data.ok) {
-      return res.json(response.failure('e2PCU01',
+      return res.json(response.failure('e2PC002',
         prepare.data.data.reason || 'prepare failed'));
     }
 
@@ -262,10 +248,7 @@ app.post('/db/u', async (req, res) => {
 
     stats.update++;
 
-    res.json({
-      data: { DB_key: md5(key), DN_id: dn, tuple: commit.data.data },
-      error: 0
-    });
+    res.json(response.success({ DB_key: md5(key), DN_id: dn, tuple: commit.data.data }));
 
   } catch (err) {
     logger.error(err.message);
@@ -293,7 +276,7 @@ app.get('/db/d', async (req, res) => {
     });
 
     if (!prepare.data.data.ok) {
-      return res.json(response.failure('e2PCD01',
+      return res.json(response.failure('e2PC003',
         prepare.data.data.reason || 'prepare failed'));
     }
 
@@ -301,10 +284,7 @@ app.get('/db/d', async (req, res) => {
 
     stats.delete++;
 
-    res.json({
-      data: { DB_key: md5(key), DN_id: dn, tuple: { key } },
-      error: 0
-    });
+    res.json(response.success({ DB_key: md5(key), DN_id: dn, tuple: { key } }));
 
   } catch (err) {
     logger.error(err.message);
